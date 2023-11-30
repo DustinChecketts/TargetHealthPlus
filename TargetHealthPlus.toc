@@ -1,0 +1,9 @@
+## Interface: 11500
+## Title: TargetHealthPlus
+## Version: 1.0.0
+## Author: StormtrooperTK421
+## Notes: Display health and mana text and percentage on your target
+## DefaultState: enabled
+## X-Curse-Project-ID: 
+
+TargetHealthPlus.lua
