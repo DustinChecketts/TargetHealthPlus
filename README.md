@@ -1,4 +1,4 @@
-# TargetHealthPlus
+# Target Health Plus
 A World of Warcraft: Classic addon that displays target health and mana as a Numeric Value, Percentage, Both, or None.
 
 Target Health Plus is extremely lightweight and controlled using the default Blizzard options menu. To enable or change the display, go to the game's Main Menu > Options > Interface > Status Text, and select your preferred Numeric Value, Percentage, Both, or None. Blizzard's default UI only displays this text for the player frame, but Target Health Plus mimics this behavior for the target frame as well.
