@@ -12,7 +12,7 @@ Target Health Plus is extremely lightweight and controlled using the default Bli
 
 <h4>Acknowledgements</h4>
 
-- Concept taken from [Target Health](https://www.curseforge.com/wow/addons/target-health) by [draon12](https://www.curseforge.com/members/draon12/projects)
+- [Target Health](https://www.curseforge.com/wow/addons/target-health) by [draon12](https://www.curseforge.com/members/draon12/projects)
 
 <h4>Known Issues / To-Do</h4>
 
