@@ -6,9 +6,8 @@ Target Health Plus is extremely lightweight and controlled using the default Bli
 <h4>Features</h4>
 
 - A minimalist addon that retains the design of the default Blizzard UI
-- Plug and play with your current Blizzard Interface settings
+- Plug and play with Blizzard's Interface settings
 - Mirrors the player frame status text format for quick readability
-- Utilizes Blizzard's own Interface settings to control
 - High-performance and accurate
 
 <h4>Acknowledgements</h4>
