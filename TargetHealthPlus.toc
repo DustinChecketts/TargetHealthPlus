@@ -1,6 +1,6 @@
-## Interface: 11506
+## Interface: 11507
 ## Title: TargetHealthPlus
-## Version: 1.0.7
+## Version: 1.0.8
 ## Author: StormtrooperTK421
 ## Notes: Display health and mana text and/or percentage on your target
 ## DefaultState: enabled
