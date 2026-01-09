@@ -16,6 +16,6 @@ Target Health Plus is extremely lightweight and controlled using the default Bli
 
 <h4>Known Issues / To-Do</h4>
 
-- Test with ElvUI, Masque, and various other popular UI frameworks and addons
+- 
 
 Updated, uploaded, and maintained (at least for now) by [StormtrooperTK421](https://discordapp.com/users/237746068844969994) on [GitHub](https://github.com/DustinChecketts/TargetHealthPlus). Please submit issues and I'll do my best to troubleshoot, replicate, and resolve issues as my limited abilities allow.
