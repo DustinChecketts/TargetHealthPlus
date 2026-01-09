@@ -1,152 +1,267 @@
--- Define a table to hold different status text display modes
-STATUS_TEXT_DISPLAY_MODE = {
+-- TargetHealthPlus (Classic Era 2.5.5)
+
+-- Display modes (compatible with older versions)
+STATUS_TEXT_DISPLAY_MODE = STATUS_TEXT_DISPLAY_MODE or {
     NUMERIC = "NUMERIC",
     PERCENT = "PERCENT",
-    BOTH = "BOTH",
-    NONE = "NONE",
+    BOTH    = "BOTH",
+    NONE    = "NONE",
 }
 
--- Set up HP (Health Points) text for the target frame
-local layerHP = "BORDER"
+local ADDON_NAME = ...
+local f = CreateFrame("Frame")
 
--- Create font strings for HP text at different positions
-TargetFrameTextureFrame:CreateFontString("TargetFrameHealthBarText", layerHP, "TextStatusBarText")
-TargetFrameHealthBarText:SetPoint("CENTER", TargetFrameTextureFrame, "CENTER", -50, 3)
-
-TargetFrameTextureFrame:CreateFontString("TargetFrameHealthBarTextLeft", layerHP, "TextStatusBarText")
-TargetFrameHealthBarTextLeft:SetPoint("LEFT", TargetFrameTextureFrame, "LEFT", 8, 3)
-
-TargetFrameTextureFrame:CreateFontString("TargetFrameHealthBarTextRight", layerHP, "TextStatusBarText")
-TargetFrameHealthBarTextRight:SetPoint("RIGHT", TargetFrameTextureFrame, "RIGHT", -110, 3)
-
--- Set up Mana text for the target frame
-local layerMana = "BORDER"
-
--- Create font strings for Mana text at different positions
-TargetFrameTextureFrame:CreateFontString("TargetFrameManaBarText", layerMana, "TextStatusBarText")
-TargetFrameManaBarText:SetPoint("CENTER", TargetFrameTextureFrame, "CENTER", -50, -8)
-
-TargetFrameTextureFrame:CreateFontString("TargetFrameManaBarTextLeft", layerMana, "TextStatusBarText")
-TargetFrameManaBarTextLeft:SetPoint("LEFT", TargetFrameTextureFrame, "LEFT", 8, -8)
-
-TargetFrameTextureFrame:CreateFontString("TargetFrameManaBarTextRight", layerMana, "TextStatusBarText")
-TargetFrameManaBarTextRight:SetPoint("RIGHT", TargetFrameTextureFrame, "RIGHT", -110, -8)
-
--- Set the status text for HP and Mana bars
-TargetFrameHealthBar.LeftText = TargetFrameHealthBarTextLeft
-TargetFrameHealthBar.RightText = TargetFrameHealthBarTextRight
-TargetFrameManaBar.LeftText = TargetFrameManaBarTextLeft
-TargetFrameManaBar.RightText = TargetFrameManaBarTextRight
-
--- Initialize the unit frame health and mana bars for the target frame
-UnitFrameHealthBar_Initialize("target", TargetFrameHealthBar, TargetFrameHealthBarText, true)
-UnitFrameManaBar_Initialize("target", TargetFrameManaBar, TargetFrameManaBarText, true)
-
--- Function to update the text string with values for a status frame
-local function TextStatusBar_UpdateTextStringWithValues(statusFrame, textString, value, valueMin, valueMax)
-    if (statusFrame.LeftText and statusFrame.RightText) then
-        -- Clear and hide left and right text if they exist
-        statusFrame.LeftText:SetText("")
-        statusFrame.RightText:SetText("")
-        statusFrame.LeftText:Hide()
-        statusFrame.RightText:Hide()
+local function Abbrev(n)
+    if type(AbbreviateLargeNumbers) == "function" then
+        return AbbreviateLargeNumbers(n)
     end
+    -- Fallback
+    if n >= 1e6 then
+        return string.format("%.1fm", n / 1e6)
+    elseif n >= 1e3 then
+        return string.format("%.1fk", n / 1e3)
+    end
+    return tostring(n)
+end
 
-    -- Check if max value is valid and updates aren't paused
-    if ((tonumber(valueMax) ~= valueMax or valueMax > 0) and not (statusFrame.pauseUpdates)) then
-        statusFrame:Show()
+local function GetDisplayMode()
+    -- Retail/modern-style CVar is usually "statusTextDisplay" and returns:
+    -- "BOTH", "PERCENT", "NUMERIC", "NONE"
+    local mode = GetCVar and GetCVar("statusTextDisplay")
+    if mode and mode ~= "" then return mode end
 
-        -- Check conditions to show or hide text based on configuration
-        if ((statusFrame.cvar and GetCVar(statusFrame.cvar) == "1" and statusFrame.textLockable) or statusFrame.forceShow) then
-            textString:Show()
-        elseif (statusFrame.lockShow > 0 and (not statusFrame.forceHideText)) then
-            textString:Show()
-        else
-            textString:SetText("")
-            textString:Hide()
-            return
-        end
+    -- Fallback: some builds use a boolean-ish cvar
+    local statusText = GetCVar and GetCVar("statusText")
+    if statusText == "1" then return STATUS_TEXT_DISPLAY_MODE.BOTH end
 
-        -- Display zero text if value is 0 and zero text is defined
-        if (value == 0 and statusFrame.zeroText) then
-            textString:SetText(statusFrame.zeroText)
-            statusFrame.isZero = 1
-            textString:Show()
-            return
-        end
+    return STATUS_TEXT_DISPLAY_MODE.BOTH
+end
 
-        statusFrame.isZero = nil
-
-        local valueDisplay = value
-        local valueMaxDisplay = valueMax
-
-        -- Apply custom text transform function if provided, otherwise use default large number handling
-        if (statusFrame.numericDisplayTransformFunc) then
-            valueDisplay, valueMaxDisplay = statusFrame.numericDisplayTransformFunc(value, valueMax)
-        else
-            valueDisplay = AbbreviateLargeNumbers(value)
-            valueMaxDisplay = AbbreviateLargeNumbers(valueMax)
-        end
-
-        local shouldUsePrefix = statusFrame.prefix and
-            (statusFrame.alwaysPrefix or not (statusFrame.cvar and GetCVar(statusFrame.cvar) == "1" and statusFrame.textLockable))
-
-        local displayMode = GetCVar("statusTextDisplay")
-
-        if (statusFrame.showNumeric) then
-            displayMode = STATUS_TEXT_DISPLAY_MODE.NUMERIC
-        end
-
-        -- If percent-only mode and percentages are disabled, fall back on numeric-only
-        if (statusFrame.disablePercentages and displayMode == STATUS_TEXT_DISPLAY_MODE.PERCENT) then
-            displayMode = STATUS_TEXT_DISPLAY_MODE.NUMERIC
-        end
-
-        -- Numeric only
-        if (valueMax <= 0 or displayMode == STATUS_TEXT_DISPLAY_MODE.NUMERIC or displayMode == STATUS_TEXT_DISPLAY_MODE.NONE) then
-            if (shouldUsePrefix) then
-                textString:SetText(statusFrame.prefix .. " " .. valueDisplay .. " / " .. valueMaxDisplay)
-            else
-                textString:SetText(valueDisplay .. " / " .. valueMaxDisplay)
-            end
-        -- Numeric + Percentage
-        elseif (displayMode == STATUS_TEXT_DISPLAY_MODE.BOTH) then
-            if (statusFrame.LeftText and statusFrame.RightText) then
-                -- Unless explicitly disabled, only display percentage on left if displaying mana or a non-power value
-                if (not statusFrame.disablePercentages and (not statusFrame.powerToken or statusFrame.powerToken == "MANA")) then
-                    statusFrame.LeftText:SetText(math.ceil((value / valueMax) * 100) .. "%")
-                    statusFrame.LeftText:Show()
-                end
-                statusFrame.RightText:SetText(valueDisplay)
-                statusFrame.RightText:Show()
-                textString:Hide()
-            else
-                valueDisplay = valueDisplay .. " / " .. valueMaxDisplay
-                if (not statusFrame.disablePercentages) then
-                    valueDisplay = "(" .. math.ceil((value / valueMax) * 100) .. "%) " .. valueDisplay
-                end
-            end
-            textString:SetText(valueDisplay)
-        -- Percentage Only
-        elseif (displayMode == STATUS_TEXT_DISPLAY_MODE.PERCENT) then
-            valueDisplay = math.ceil((value / valueMax) * 100) .. "%"
-            if (shouldUsePrefix) then
-                textString:SetText(statusFrame.prefix .. " " .. valueDisplay)
-            else
-                textString:SetText(valueDisplay)
-            end
-        end
-    -- Max value is invalid or updates are paused
-    else
-        textString:Hide()
-        textString:SetText("")
-        if (not statusFrame.alwaysShow) then
-            statusFrame:Hide()
-        else
-            statusFrame:SetValue(0)
+local function HideDefaultTextStrings(statusBar)
+    if not statusBar then return end
+    -- Different UI builds use different fields; hide whatever exists.
+    local fields = {
+        "TextString", "TextString2", "TextString3",
+        "LeftText", "RightText", "CenterText",
+        "textString", "textString2", "textString3",
+    }
+    for _, k in ipairs(fields) do
+        local t = statusBar[k]
+        if t and t.Hide then
+            t:Hide()
         end
     end
 end
 
--- Hook the function to update text values for status bars
-hooksecurefunc("TextStatusBar_UpdateTextStringWithValues", TextStatusBar_UpdateTextStringWithValues)
+-- ============================================================
+-- Overlay layer (NEW): ensures text draws above frame art
+-- ============================================================
+local overlayFrame
+
+local function GetOverlayParent()
+    -- TargetFrameTextureFrame typically draws above the target art.
+    return _G.TargetFrameTextureFrame or _G.TargetFrame or UIParent
+end
+
+local function EnsureOverlayFrame()
+    local parent = GetOverlayParent()
+
+    -- If UI gets rebuilt (Edit Mode / layout changes), re-parent cleanly.
+    if overlayFrame and overlayFrame:GetParent() ~= parent then
+        overlayFrame:Hide()
+        overlayFrame = nil
+        -- Force FontString recreation on next CreateTargetText()
+        TargetHealthPercentText = nil
+        TargetHealthValueText = nil
+        TargetHealthCenterText = nil
+        TargetManaPercentText = nil
+        TargetManaValueText = nil
+        TargetManaCenterText = nil
+    end
+
+    if overlayFrame then return overlayFrame end
+
+    overlayFrame = CreateFrame("Frame", "TargetHealthPlusOverlay", parent)
+    -- HIGH is usually enough; if any UI mod still draws above it, change to "DIALOG"
+    overlayFrame:SetFrameStrata("HIGH")
+    overlayFrame:SetFrameLevel((parent:GetFrameLevel() or 0) + 80)
+    overlayFrame:Show()
+
+    return overlayFrame
+end
+
+-- CHANGED: We now create fontstrings on overlayFrame (parent), but anchor them to the bar (rel).
+local function EnsureFS(name, point, rel, relPoint, x, y, justify)
+    if _G[name] then return _G[name] end
+
+    local parent = EnsureOverlayFrame()
+    local fs = parent:CreateFontString(name, "OVERLAY", "TextStatusBarText")
+    fs:SetPoint(point, rel, relPoint, x, y)
+    fs:SetJustifyH(justify)
+    fs:SetJustifyV("MIDDLE")
+
+    -- Optional: crisper rendering under scaling (helps reduce "bold" look)
+    if fs.SetSnapToPixelGrid then fs:SetSnapToPixelGrid(true) end
+    if fs.SetTexelSnappingBias then fs:SetTexelSnappingBias(0) end
+
+    return fs
+end
+
+-- Create three text fields per bar:
+--  - Left  (percent)
+--  - Right (value)
+--  - Center (percent OR value/max depending on setting)
+local healthLeft, healthRight, healthCenter
+local manaLeft, manaRight, manaCenter
+
+local function CreateTargetText()
+    -- Target frame bars can be reconstructed by Edit Mode, so recreate if needed.
+    local hb = _G.TargetFrameHealthBar or (_G.TargetFrame and _G.TargetFrame.healthbar)
+    local mb = _G.TargetFrameManaBar   or (_G.TargetFrame and _G.TargetFrame.manabar)
+    if not hb then return false end
+
+    EnsureOverlayFrame()
+
+    HideDefaultTextStrings(hb)
+    if mb then HideDefaultTextStrings(mb) end
+
+    -- Health text (anchored to hb, created on overlay)
+    healthLeft   = EnsureFS("TargetHealthPercentText", "LEFT",   hb, "LEFT",   3,  0, "LEFT")
+    healthRight  = EnsureFS("TargetHealthValueText",   "RIGHT",  hb, "RIGHT", -3,  0, "RIGHT")
+    healthCenter = EnsureFS("TargetHealthCenterText",  "CENTER", hb, "CENTER", 0,  0, "CENTER")
+
+    -- Mana/Power text
+    if mb then
+        manaLeft   = EnsureFS("TargetManaPercentText", "LEFT",   mb, "LEFT",   3,  0, "LEFT")
+        manaRight  = EnsureFS("TargetManaValueText",   "RIGHT",  mb, "RIGHT", -3,  0, "RIGHT")
+        manaCenter = EnsureFS("TargetManaCenterText",  "CENTER", mb, "CENTER", 0,  0, "CENTER")
+    end
+
+    return true
+end
+
+local function ApplyMode(leftFS, rightFS, centerFS, value, maxValue)
+    local mode = GetDisplayMode()
+
+    if not value or not maxValue or maxValue <= 0 then
+        if leftFS then leftFS:SetText(""); leftFS:Hide() end
+        if rightFS then rightFS:SetText(""); rightFS:Hide() end
+        if centerFS then centerFS:SetText(""); centerFS:Hide() end
+        return
+    end
+
+    local pct = math.floor((value / maxValue) * 100 + 0.5)
+
+    if mode == STATUS_TEXT_DISPLAY_MODE.BOTH then
+        -- Left: %  Right: current value
+        if leftFS then leftFS:SetText(pct .. "%"); leftFS:Show() end
+        if rightFS then rightFS:SetText(Abbrev(value)); rightFS:Show() end
+        if centerFS then centerFS:SetText(""); centerFS:Hide() end
+
+    elseif mode == STATUS_TEXT_DISPLAY_MODE.PERCENT then
+        -- Center: %
+        if centerFS then centerFS:SetText(pct .. "%"); centerFS:Show() end
+        if leftFS then leftFS:SetText(""); leftFS:Hide() end
+        if rightFS then rightFS:SetText(""); rightFS:Hide() end
+
+    elseif mode == STATUS_TEXT_DISPLAY_MODE.NUMERIC then
+        -- Center: value / max (player-style)
+        local txt = Abbrev(value) .. " / " .. Abbrev(maxValue)
+        if centerFS then centerFS:SetText(txt); centerFS:Show() end
+        if leftFS then leftFS:SetText(""); leftFS:Hide() end
+        if rightFS then rightFS:SetText(""); rightFS:Hide() end
+
+    else -- NONE or unknown
+        if leftFS then leftFS:SetText(""); leftFS:Hide() end
+        if rightFS then rightFS:SetText(""); rightFS:Hide() end
+        if centerFS then centerFS:SetText(""); centerFS:Hide() end
+    end
+end
+
+local function UpdateTargetText()
+    -- Re-acquire bars each update in case Edit Mode rebuilt the frame.
+    local hb = _G.TargetFrameHealthBar or (_G.TargetFrame and _G.TargetFrame.healthbar)
+    local mb = _G.TargetFrameManaBar   or (_G.TargetFrame and _G.TargetFrame.manabar)
+    if not hb then return end
+
+    EnsureOverlayFrame()
+
+    -- Ensure our fontstrings exist and default strings stay hidden.
+    if not (healthLeft and healthRight and healthCenter) then
+        CreateTargetText()
+    else
+        HideDefaultTextStrings(hb)
+        if mb then HideDefaultTextStrings(mb) end
+    end
+
+    if UnitExists("target") then
+        -- Health
+        local hp  = UnitHealth("target")
+        local hpm = UnitHealthMax("target")
+        ApplyMode(healthLeft, healthRight, healthCenter, hp, hpm)
+
+        -- Power
+        if mb and manaLeft and manaRight and manaCenter then
+            local pp  = UnitPower("target")
+            local ppm = UnitPowerMax("target")
+            ApplyMode(manaLeft, manaRight, manaCenter, pp, ppm)
+        end
+    else
+        ApplyMode(healthLeft, healthRight, healthCenter, nil, nil)
+        if manaLeft or manaRight or manaCenter then
+            ApplyMode(manaLeft, manaRight, manaCenter, nil, nil)
+        end
+    end
+end
+
+local pending = false
+local function QueueUpdate()
+    if pending then return end
+    pending = true
+    C_Timer.After(0, function()
+        pending = false
+        pcall(UpdateTargetText)
+    end)
+end
+
+local function RegisterEvents()
+    f:RegisterEvent("PLAYER_LOGIN")
+    f:RegisterEvent("PLAYER_ENTERING_WORLD")
+    f:RegisterEvent("PLAYER_TARGET_CHANGED")
+    f:RegisterEvent("UNIT_HEALTH")
+    f:RegisterEvent("UNIT_MAXHEALTH")
+    f:RegisterEvent("UNIT_POWER_UPDATE")
+    f:RegisterEvent("UNIT_MAXPOWER")
+    f:RegisterEvent("UNIT_DISPLAYPOWER")
+    f:RegisterEvent("CVAR_UPDATE")
+end
+
+f:SetScript("OnEvent", function(_, event, arg1)
+    if event == "PLAYER_LOGIN" then
+        CreateTargetText()
+        QueueUpdate()
+        return
+    end
+
+    if event == "UNIT_HEALTH" or event == "UNIT_MAXHEALTH" then
+        if arg1 == "target" then QueueUpdate() end
+        return
+    end
+    if event == "UNIT_POWER_UPDATE" or event == "UNIT_MAXPOWER" or event == "UNIT_DISPLAYPOWER" then
+        if arg1 == "target" then QueueUpdate() end
+        return
+    end
+    if event == "CVAR_UPDATE" then
+        -- statusText / statusTextDisplay changes
+        QueueUpdate()
+        return
+    end
+
+    -- login/enter world/target change
+    QueueUpdate()
+end)
+
+RegisterEvents()
+
+-- Safety: also refresh after a short delay because Edit Mode / UI loading can reconstruct bars
+C_Timer.After(1, function() pcall(UpdateTargetText) end)
