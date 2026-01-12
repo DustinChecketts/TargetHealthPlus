@@ -15,7 +15,6 @@ local function Abbrev(n)
     if type(AbbreviateLargeNumbers) == "function" then
         return AbbreviateLargeNumbers(n)
     end
-    -- Fallback
     if n >= 1e6 then
         return string.format("%.1fm", n / 1e6)
     elseif n >= 1e3 then
@@ -25,12 +24,9 @@ local function Abbrev(n)
 end
 
 local function GetDisplayMode()
-    -- Retail/modern-style CVar is usually "statusTextDisplay" and returns:
-    -- "BOTH", "PERCENT", "NUMERIC", "NONE"
     local mode = GetCVar and GetCVar("statusTextDisplay")
     if mode and mode ~= "" then return mode end
 
-    -- Fallback: some builds use a boolean-ish cvar
     local statusText = GetCVar and GetCVar("statusText")
     if statusText == "1" then return STATUS_TEXT_DISPLAY_MODE.BOTH end
 
@@ -39,7 +35,6 @@ end
 
 local function HideDefaultTextStrings(statusBar)
     if not statusBar then return end
-    -- Different UI builds use different fields; hide whatever exists.
     local fields = {
         "TextString", "TextString2", "TextString3",
         "LeftText", "RightText", "CenterText",
@@ -54,23 +49,36 @@ local function HideDefaultTextStrings(statusBar)
 end
 
 -- ============================================================
--- Overlay layer (NEW): ensures text draws above frame art
+-- NEW: prevent Blizzard hover logic from re-showing text
+-- ============================================================
+local function HookBarMouseHandlers(bar)
+    if not bar or bar.__TargetHealthPlusHooked then return end
+    bar.__TargetHealthPlusHooked = true
+
+    bar:HookScript("OnEnter", function()
+        HideDefaultTextStrings(bar)
+    end)
+
+    bar:HookScript("OnLeave", function()
+        HideDefaultTextStrings(bar)
+    end)
+end
+
+-- ============================================================
+-- Overlay layer: ensures text draws above frame art
 -- ============================================================
 local overlayFrame
 
 local function GetOverlayParent()
-    -- TargetFrameTextureFrame typically draws above the target art.
     return _G.TargetFrameTextureFrame or _G.TargetFrame or UIParent
 end
 
 local function EnsureOverlayFrame()
     local parent = GetOverlayParent()
 
-    -- If UI gets rebuilt (Edit Mode / layout changes), re-parent cleanly.
     if overlayFrame and overlayFrame:GetParent() ~= parent then
         overlayFrame:Hide()
         overlayFrame = nil
-        -- Force FontString recreation on next CreateTargetText()
         TargetHealthPercentText = nil
         TargetHealthValueText = nil
         TargetHealthCenterText = nil
@@ -82,7 +90,6 @@ local function EnsureOverlayFrame()
     if overlayFrame then return overlayFrame end
 
     overlayFrame = CreateFrame("Frame", "TargetHealthPlusOverlay", parent)
-    -- HIGH is usually enough; if any UI mod still draws above it, change to "DIALOG"
     overlayFrame:SetFrameStrata("HIGH")
     overlayFrame:SetFrameLevel((parent:GetFrameLevel() or 0) + 80)
     overlayFrame:Show()
@@ -90,7 +97,6 @@ local function EnsureOverlayFrame()
     return overlayFrame
 end
 
--- CHANGED: We now create fontstrings on overlayFrame (parent), but anchor them to the bar (rel).
 local function EnsureFS(name, point, rel, relPoint, x, y, justify)
     if _G[name] then return _G[name] end
 
@@ -100,37 +106,32 @@ local function EnsureFS(name, point, rel, relPoint, x, y, justify)
     fs:SetJustifyH(justify)
     fs:SetJustifyV("MIDDLE")
 
-    -- Optional: crisper rendering under scaling (helps reduce "bold" look)
     if fs.SetSnapToPixelGrid then fs:SetSnapToPixelGrid(true) end
     if fs.SetTexelSnappingBias then fs:SetTexelSnappingBias(0) end
 
     return fs
 end
 
--- Create three text fields per bar:
---  - Left  (percent)
---  - Right (value)
---  - Center (percent OR value/max depending on setting)
 local healthLeft, healthRight, healthCenter
 local manaLeft, manaRight, manaCenter
 
 local function CreateTargetText()
-    -- Target frame bars can be reconstructed by Edit Mode, so recreate if needed.
     local hb = _G.TargetFrameHealthBar or (_G.TargetFrame and _G.TargetFrame.healthbar)
     local mb = _G.TargetFrameManaBar   or (_G.TargetFrame and _G.TargetFrame.manabar)
     if not hb then return false end
 
     EnsureOverlayFrame()
 
+    HookBarMouseHandlers(hb)
+    if mb then HookBarMouseHandlers(mb) end
+
     HideDefaultTextStrings(hb)
     if mb then HideDefaultTextStrings(mb) end
 
-    -- Health text (anchored to hb, created on overlay)
     healthLeft   = EnsureFS("TargetHealthPercentText", "LEFT",   hb, "LEFT",   3,  0, "LEFT")
     healthRight  = EnsureFS("TargetHealthValueText",   "RIGHT",  hb, "RIGHT", -3,  0, "RIGHT")
     healthCenter = EnsureFS("TargetHealthCenterText",  "CENTER", hb, "CENTER", 0,  0, "CENTER")
 
-    -- Mana/Power text
     if mb then
         manaLeft   = EnsureFS("TargetManaPercentText", "LEFT",   mb, "LEFT",   3,  0, "LEFT")
         manaRight  = EnsureFS("TargetManaValueText",   "RIGHT",  mb, "RIGHT", -3,  0, "RIGHT")
@@ -144,49 +145,43 @@ local function ApplyMode(leftFS, rightFS, centerFS, value, maxValue)
     local mode = GetDisplayMode()
 
     if not value or not maxValue or maxValue <= 0 then
-        if leftFS then leftFS:SetText(""); leftFS:Hide() end
-        if rightFS then rightFS:SetText(""); rightFS:Hide() end
-        if centerFS then centerFS:SetText(""); centerFS:Hide() end
+        if leftFS then leftFS:Hide() end
+        if rightFS then rightFS:Hide() end
+        if centerFS then centerFS:Hide() end
         return
     end
 
     local pct = math.floor((value / maxValue) * 100 + 0.5)
 
     if mode == STATUS_TEXT_DISPLAY_MODE.BOTH then
-        -- Left: %  Right: current value
         if leftFS then leftFS:SetText(pct .. "%"); leftFS:Show() end
         if rightFS then rightFS:SetText(Abbrev(value)); rightFS:Show() end
-        if centerFS then centerFS:SetText(""); centerFS:Hide() end
+        if centerFS then centerFS:Hide() end
 
     elseif mode == STATUS_TEXT_DISPLAY_MODE.PERCENT then
-        -- Center: %
         if centerFS then centerFS:SetText(pct .. "%"); centerFS:Show() end
-        if leftFS then leftFS:SetText(""); leftFS:Hide() end
-        if rightFS then rightFS:SetText(""); rightFS:Hide() end
+        if leftFS then leftFS:Hide() end
+        if rightFS then rightFS:Hide() end
 
     elseif mode == STATUS_TEXT_DISPLAY_MODE.NUMERIC then
-        -- Center: value / max (player-style)
-        local txt = Abbrev(value) .. " / " .. Abbrev(maxValue)
-        if centerFS then centerFS:SetText(txt); centerFS:Show() end
-        if leftFS then leftFS:SetText(""); leftFS:Hide() end
-        if rightFS then rightFS:SetText(""); rightFS:Hide() end
+        if centerFS then centerFS:SetText(Abbrev(value) .. " / " .. Abbrev(maxValue)); centerFS:Show() end
+        if leftFS then leftFS:Hide() end
+        if rightFS then rightFS:Hide() end
 
-    else -- NONE or unknown
-        if leftFS then leftFS:SetText(""); leftFS:Hide() end
-        if rightFS then rightFS:SetText(""); rightFS:Hide() end
-        if centerFS then centerFS:SetText(""); centerFS:Hide() end
+    else
+        if leftFS then leftFS:Hide() end
+        if rightFS then rightFS:Hide() end
+        if centerFS then centerFS:Hide() end
     end
 end
 
 local function UpdateTargetText()
-    -- Re-acquire bars each update in case Edit Mode rebuilt the frame.
     local hb = _G.TargetFrameHealthBar or (_G.TargetFrame and _G.TargetFrame.healthbar)
     local mb = _G.TargetFrameManaBar   or (_G.TargetFrame and _G.TargetFrame.manabar)
     if not hb then return end
 
     EnsureOverlayFrame()
 
-    -- Ensure our fontstrings exist and default strings stay hidden.
     if not (healthLeft and healthRight and healthCenter) then
         CreateTargetText()
     else
@@ -195,16 +190,12 @@ local function UpdateTargetText()
     end
 
     if UnitExists("target") then
-        -- Health
-        local hp  = UnitHealth("target")
-        local hpm = UnitHealthMax("target")
-        ApplyMode(healthLeft, healthRight, healthCenter, hp, hpm)
+        ApplyMode(healthLeft, healthRight, healthCenter,
+            UnitHealth("target"), UnitHealthMax("target"))
 
-        -- Power
         if mb and manaLeft and manaRight and manaCenter then
-            local pp  = UnitPower("target")
-            local ppm = UnitPowerMax("target")
-            ApplyMode(manaLeft, manaRight, manaCenter, pp, ppm)
+            ApplyMode(manaLeft, manaRight, manaCenter,
+                UnitPower("target"), UnitPowerMax("target"))
         end
     else
         ApplyMode(healthLeft, healthRight, healthCenter, nil, nil)
@@ -243,25 +234,15 @@ f:SetScript("OnEvent", function(_, event, arg1)
         return
     end
 
-    if event == "UNIT_HEALTH" or event == "UNIT_MAXHEALTH" then
-        if arg1 == "target" then QueueUpdate() end
-        return
-    end
-    if event == "UNIT_POWER_UPDATE" or event == "UNIT_MAXPOWER" or event == "UNIT_DISPLAYPOWER" then
-        if arg1 == "target" then QueueUpdate() end
-        return
-    end
-    if event == "CVAR_UPDATE" then
-        -- statusText / statusTextDisplay changes
+    if (event == "UNIT_HEALTH" or event == "UNIT_MAXHEALTH"
+     or event == "UNIT_POWER_UPDATE" or event == "UNIT_MAXPOWER"
+     or event == "UNIT_DISPLAYPOWER") and arg1 == "target" then
         QueueUpdate()
         return
     end
 
-    -- login/enter world/target change
     QueueUpdate()
 end)
 
 RegisterEvents()
-
--- Safety: also refresh after a short delay because Edit Mode / UI loading can reconstruct bars
 C_Timer.After(1, function() pcall(UpdateTargetText) end)
