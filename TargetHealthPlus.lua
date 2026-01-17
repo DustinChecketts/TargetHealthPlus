@@ -1,6 +1,5 @@
 -- TargetHealthPlus (Classic Era 2.5.5)
 
--- Display modes (compatible with older versions)
 STATUS_TEXT_DISPLAY_MODE = STATUS_TEXT_DISPLAY_MODE or {
     NUMERIC = "NUMERIC",
     PERCENT = "PERCENT",
@@ -48,9 +47,6 @@ local function HideDefaultTextStrings(statusBar)
     end
 end
 
--- ============================================================
--- NEW: prevent Blizzard hover logic from re-showing text
--- ============================================================
 local function HookBarMouseHandlers(bar)
     if not bar or bar.__TargetHealthPlusHooked then return end
     bar.__TargetHealthPlusHooked = true
@@ -64,9 +60,6 @@ local function HookBarMouseHandlers(bar)
     end)
 end
 
--- ============================================================
--- Overlay layer: ensures text draws above frame art
--- ============================================================
 local overlayFrame
 
 local function GetOverlayParent()
@@ -190,6 +183,15 @@ local function UpdateTargetText()
     end
 
     if UnitExists("target") then
+        -- ✅ NEW: hide addon text entirely when target is dead
+        if UnitIsDeadOrGhost("target") then
+            ApplyMode(healthLeft, healthRight, healthCenter, nil, nil)
+            if mb and manaLeft and manaRight and manaCenter then
+                ApplyMode(manaLeft, manaRight, manaCenter, nil, nil)
+            end
+            return
+        end
+
         ApplyMode(healthLeft, healthRight, healthCenter,
             UnitHealth("target"), UnitHealthMax("target"))
 
