@@ -32,6 +32,7 @@ local function GetDisplayMode()
     return STATUS_TEXT_DISPLAY_MODE.BOTH
 end
 
+-- Alpha Fix provided by Discord user 'energy'
 local function HideDefaultTextStrings(statusBar)
     if not statusBar then return end
     local fields = {
