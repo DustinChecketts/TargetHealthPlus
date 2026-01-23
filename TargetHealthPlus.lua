@@ -1,4 +1,4 @@
--- TargetHealthPlus (Classic Era 2.5.5)
+-- TargetHealthPlus (Classic Anniversary 2.5.5)
 
 STATUS_TEXT_DISPLAY_MODE = STATUS_TEXT_DISPLAY_MODE or {
     NUMERIC = "NUMERIC",
