@@ -44,6 +44,9 @@ local function HideDefaultTextStrings(statusBar)
         if t and t.Hide then
             t:Hide()
         end
+        if t and t.SetAlpha then
+            t:SetAlpha(0)
+        end
     end
 end
 
