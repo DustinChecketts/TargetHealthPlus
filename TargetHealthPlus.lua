@@ -1,4 +1,11 @@
--- TargetHealthPlus (Classic Anniversary 2.5.5)
+-- TargetHealthPlus (Classic Anniversary / Era 2.5.5+)
+-- Displays target health/power text (percent/value) on the target frame.
+-- Notes:
+--  - No Blizzard internal function hooks (2.5.5+ resilient)
+--  - Our text is drawn above frame art (overlay frame)
+--  - Keeps Blizzard status text hidden (even on hover)
+--  - Hides our text when target is dead (avoids "Dead" overlap)
+--  - Does NOT hard-code a font: copies the font currently used by the player frame text.
 
 STATUS_TEXT_DISPLAY_MODE = STATUS_TEXT_DISPLAY_MODE or {
     NUMERIC = "NUMERIC",
@@ -7,9 +14,11 @@ STATUS_TEXT_DISPLAY_MODE = STATUS_TEXT_DISPLAY_MODE or {
     NONE    = "NONE",
 }
 
-local ADDON_NAME = ...
 local f = CreateFrame("Frame")
 
+-- ----------------------------------------------------------
+-- Helpers
+-- ----------------------------------------------------------
 local function Abbrev(n)
     if type(AbbreviateLargeNumbers) == "function" then
         return AbbreviateLargeNumbers(n)
@@ -32,56 +41,45 @@ local function GetDisplayMode()
     return STATUS_TEXT_DISPLAY_MODE.BOTH
 end
 
--- Alpha Fix provided by Discord user 'energy'
-local function HideDefaultTextStrings(statusBar)
-    if not statusBar then return end
-    local fields = {
-        "TextString", "TextString2", "TextString3",
-        "LeftText", "RightText", "CenterText",
-        "textString", "textString2", "textString3",
+local function HideDefaultTextStrings(bar)
+    if not bar then return end
+    local keys = {
+        "TextString","TextString2","TextString3",
+        "LeftText","RightText","CenterText",
+        "textString","textString2","textString3",
     }
-    for _, k in ipairs(fields) do
-        local t = statusBar[k]
-        if t and t.Hide then
-            t:Hide()
-        end
-        if t and t.SetAlpha then
-            t:SetAlpha(0)
+    for i = 1, #keys do
+        local t = bar[keys[i]]
+        if t then
+            if t.Hide then t:Hide() end
+            if t.SetAlpha then t:SetAlpha(0) end
         end
     end
 end
 
 local function HookBarMouseHandlers(bar)
-    if not bar or bar.__TargetHealthPlusHooked then return end
-    bar.__TargetHealthPlusHooked = true
-
-    bar:HookScript("OnEnter", function()
-        HideDefaultTextStrings(bar)
-    end)
-
-    bar:HookScript("OnLeave", function()
-        HideDefaultTextStrings(bar)
-    end)
+    if not bar or bar.__THP_Hooked then return end
+    bar.__THP_Hooked = true
+    bar:HookScript("OnEnter", function() HideDefaultTextStrings(bar) end)
+    bar:HookScript("OnLeave", function() HideDefaultTextStrings(bar) end)
 end
 
+-- ----------------------------------------------------------
+-- Overlay frame (above art)
+-- ----------------------------------------------------------
 local overlayFrame
-
-local function GetOverlayParent()
-    return _G.TargetFrameTextureFrame or _G.TargetFrame or UIParent
-end
-
 local function EnsureOverlayFrame()
-    local parent = GetOverlayParent()
+    local parent = _G.TargetFrameTextureFrame or _G.TargetFrame or UIParent
 
     if overlayFrame and overlayFrame:GetParent() ~= parent then
         overlayFrame:Hide()
         overlayFrame = nil
         TargetHealthPercentText = nil
-        TargetHealthValueText = nil
-        TargetHealthCenterText = nil
-        TargetManaPercentText = nil
-        TargetManaValueText = nil
-        TargetManaCenterText = nil
+        TargetHealthValueText   = nil
+        TargetHealthCenterText  = nil
+        TargetManaPercentText   = nil
+        TargetManaValueText     = nil
+        TargetManaCenterText    = nil
     end
 
     if overlayFrame then return overlayFrame end
@@ -90,22 +88,43 @@ local function EnsureOverlayFrame()
     overlayFrame:SetFrameStrata("HIGH")
     overlayFrame:SetFrameLevel((parent:GetFrameLevel() or 0) + 80)
     overlayFrame:Show()
-
     return overlayFrame
 end
 
+-- ----------------------------------------------------------
+-- Font: follow whatever the player frame is currently using
+-- ----------------------------------------------------------
+local function GetFontSource()
+    -- Prefer known global strings (common across Classic variants)
+    return _G.PlayerFrameHealthBarTextLeft
+        or _G.PlayerFrameHealthBarText
+        or (_G.PlayerFrameHealthBar and _G.PlayerFrameHealthBar.TextString)
+        or (_G.PlayerFrame and _G.PlayerFrame.healthbar and _G.PlayerFrame.healthbar.TextString)
+        or _G.TextStatusBarText
+end
+
+local function ApplyFont(fs)
+    if not fs or not fs.SetFont then return end
+    local src = GetFontSource()
+    if not src or not src.GetFont then return end
+    local font, size, flags = src:GetFont()
+    if font and size then
+        fs:SetFont(font, size, flags)
+    end
+end
+
+-- ----------------------------------------------------------
+-- Create our FontStrings
+-- ----------------------------------------------------------
 local function EnsureFS(name, point, rel, relPoint, x, y, justify)
     if _G[name] then return _G[name] end
-
     local parent = EnsureOverlayFrame()
     local fs = parent:CreateFontString(name, "OVERLAY", "TextStatusBarText")
     fs:SetPoint(point, rel, relPoint, x, y)
     fs:SetJustifyH(justify)
     fs:SetJustifyV("MIDDLE")
-
     if fs.SetSnapToPixelGrid then fs:SetSnapToPixelGrid(true) end
     if fs.SetTexelSnappingBias then fs:SetTexelSnappingBias(0) end
-
     return fs
 end
 
@@ -135,23 +154,33 @@ local function CreateTargetText()
         manaCenter = EnsureFS("TargetManaCenterText",  "CENTER", mb, "CENTER", 0,  0, "CENTER")
     end
 
+    ApplyFont(healthLeft); ApplyFont(healthRight); ApplyFont(healthCenter)
+    ApplyFont(manaLeft);   ApplyFont(manaRight);   ApplyFont(manaCenter)
+
     return true
+end
+
+-- ----------------------------------------------------------
+-- Rendering
+-- ----------------------------------------------------------
+local function HideAll(a,b,c)
+    if a then a:Hide() end
+    if b then b:Hide() end
+    if c then c:Hide() end
 end
 
 local function ApplyMode(leftFS, rightFS, centerFS, value, maxValue)
     local mode = GetDisplayMode()
 
     if not value or not maxValue or maxValue <= 0 then
-        if leftFS then leftFS:Hide() end
-        if rightFS then rightFS:Hide() end
-        if centerFS then centerFS:Hide() end
+        HideAll(leftFS, rightFS, centerFS)
         return
     end
 
     local pct = math.floor((value / maxValue) * 100 + 0.5)
 
     if mode == STATUS_TEXT_DISPLAY_MODE.BOTH then
-        if leftFS then leftFS:SetText(pct .. "%"); leftFS:Show() end
+        if leftFS  then leftFS:SetText(pct .. "%"); leftFS:Show() end
         if rightFS then rightFS:SetText(Abbrev(value)); rightFS:Show() end
         if centerFS then centerFS:Hide() end
 
@@ -166,9 +195,7 @@ local function ApplyMode(leftFS, rightFS, centerFS, value, maxValue)
         if rightFS then rightFS:Hide() end
 
     else
-        if leftFS then leftFS:Hide() end
-        if rightFS then rightFS:Hide() end
-        if centerFS then centerFS:Hide() end
+        HideAll(leftFS, rightFS, centerFS)
     end
 end
 
@@ -186,31 +213,34 @@ local function UpdateTargetText()
         if mb then HideDefaultTextStrings(mb) end
     end
 
-    if UnitExists("target") then
-        -- ✅ NEW: hide addon text entirely when target is dead
-        if UnitIsDeadOrGhost("target") then
-            ApplyMode(healthLeft, healthRight, healthCenter, nil, nil)
-            if mb and manaLeft and manaRight and manaCenter then
-                ApplyMode(manaLeft, manaRight, manaCenter, nil, nil)
-            end
-            return
-        end
+    -- Keep our font synced (cheap: just copies tuple once per update)
+    ApplyFont(healthLeft); ApplyFont(healthRight); ApplyFont(healthCenter)
+    ApplyFont(manaLeft);   ApplyFont(manaRight);   ApplyFont(manaCenter)
 
-        ApplyMode(healthLeft, healthRight, healthCenter,
-            UnitHealth("target"), UnitHealthMax("target"))
+    if not UnitExists("target") then
+        HideAll(healthLeft, healthRight, healthCenter)
+        HideAll(manaLeft, manaRight, manaCenter)
+        return
+    end
 
-        if mb and manaLeft and manaRight and manaCenter then
-            ApplyMode(manaLeft, manaRight, manaCenter,
-                UnitPower("target"), UnitPowerMax("target"))
-        end
+    if UnitIsDeadOrGhost("target") then
+        HideAll(healthLeft, healthRight, healthCenter)
+        HideAll(manaLeft, manaRight, manaCenter)
+        return
+    end
+
+    ApplyMode(healthLeft, healthRight, healthCenter, UnitHealth("target"), UnitHealthMax("target"))
+
+    if mb and manaLeft and manaRight and manaCenter then
+        ApplyMode(manaLeft, manaRight, manaCenter, UnitPower("target"), UnitPowerMax("target"))
     else
-        ApplyMode(healthLeft, healthRight, healthCenter, nil, nil)
-        if manaLeft or manaRight or manaCenter then
-            ApplyMode(manaLeft, manaRight, manaCenter, nil, nil)
-        end
+        HideAll(manaLeft, manaRight, manaCenter)
     end
 end
 
+-- ----------------------------------------------------------
+-- Throttled update
+-- ----------------------------------------------------------
 local pending = false
 local function QueueUpdate()
     if pending then return end
@@ -221,34 +251,41 @@ local function QueueUpdate()
     end)
 end
 
-local function RegisterEvents()
-    f:RegisterEvent("PLAYER_LOGIN")
-    f:RegisterEvent("PLAYER_ENTERING_WORLD")
-    f:RegisterEvent("PLAYER_TARGET_CHANGED")
-    f:RegisterEvent("UNIT_HEALTH")
-    f:RegisterEvent("UNIT_MAXHEALTH")
-    f:RegisterEvent("UNIT_POWER_UPDATE")
-    f:RegisterEvent("UNIT_MAXPOWER")
-    f:RegisterEvent("UNIT_DISPLAYPOWER")
-    f:RegisterEvent("CVAR_UPDATE")
+-- ----------------------------------------------------------
+-- Debug (one-shot)
+-- ----------------------------------------------------------
+SLASH_THPDEBUG1 = "/thpdebug"
+SlashCmdList.THPDEBUG = function()
+    local src = GetFontSource()
+    local font, size, flags = src and src.GetFont and src:GetFont()
+    DEFAULT_CHAT_FRAME:AddMessage("THP font source: " .. (src and src.GetName and src:GetName() or tostring(src) or "nil"))
+    DEFAULT_CHAT_FRAME:AddMessage("THP font: " .. tostring(font) .. " " .. tostring(size) .. " " .. tostring(flags))
 end
 
-f:SetScript("OnEvent", function(_, event, arg1)
+-- ----------------------------------------------------------
+-- Events
+-- ----------------------------------------------------------
+f:RegisterEvent("PLAYER_LOGIN")
+f:RegisterEvent("PLAYER_ENTERING_WORLD")
+f:RegisterEvent("PLAYER_TARGET_CHANGED")
+f:RegisterEvent("UNIT_HEALTH")
+f:RegisterEvent("UNIT_MAXHEALTH")
+f:RegisterEvent("UNIT_POWER_UPDATE")
+f:RegisterEvent("UNIT_MAXPOWER")
+f:RegisterEvent("UNIT_DISPLAYPOWER")
+f:RegisterEvent("CVAR_UPDATE")
+
+f:SetScript("OnEvent", function(_, event, unit)
+    if event == "UNIT_HEALTH" or event == "UNIT_MAXHEALTH"
+    or event == "UNIT_POWER_UPDATE" or event == "UNIT_MAXPOWER" or event == "UNIT_DISPLAYPOWER" then
+        if unit ~= "target" then return end
+    end
+
     if event == "PLAYER_LOGIN" then
         CreateTargetText()
-        QueueUpdate()
-        return
     end
-
-    if (event == "UNIT_HEALTH" or event == "UNIT_MAXHEALTH"
-     or event == "UNIT_POWER_UPDATE" or event == "UNIT_MAXPOWER"
-     or event == "UNIT_DISPLAYPOWER") and arg1 == "target" then
-        QueueUpdate()
-        return
-    end
-
     QueueUpdate()
 end)
 
-RegisterEvents()
+-- Safety: some addons apply fonts a moment after login
 C_Timer.After(1, function() pcall(UpdateTargetText) end)
