@@ -2,10 +2,11 @@
 -- Displays target health/power text (percent/value) on the target frame.
 -- Notes:
 --  - No Blizzard internal function hooks (2.5.5+ resilient)
---  - Our text is drawn above frame art (overlay frame)
+--  - Text is drawn above frame art (overlay frame)
 --  - Keeps Blizzard status text hidden (even on hover)
---  - Hides our text when target is dead (avoids "Dead" overlap)
+--  - Hides text when target is dead (avoids "Dead" overlap)
 --  - Does NOT hard-code a font: copies the font currently used by the player frame text.
+--  - When Status Text = None, values will show on mouseover (like the player frame)
 
 STATUS_TEXT_DISPLAY_MODE = STATUS_TEXT_DISPLAY_MODE or {
     NUMERIC = "NUMERIC",
@@ -57,13 +58,6 @@ local function HideDefaultTextStrings(bar)
     end
 end
 
-local function HookBarMouseHandlers(bar)
-    if not bar or bar.__THP_Hooked then return end
-    bar.__THP_Hooked = true
-    bar:HookScript("OnEnter", function() HideDefaultTextStrings(bar) end)
-    bar:HookScript("OnLeave", function() HideDefaultTextStrings(bar) end)
-end
-
 -- ----------------------------------------------------------
 -- Overlay frame (above art)
 -- ----------------------------------------------------------
@@ -95,7 +89,6 @@ end
 -- Font: follow whatever the player frame is currently using
 -- ----------------------------------------------------------
 local function GetFontSource()
-    -- Prefer known global strings (common across Classic variants)
     return _G.PlayerFrameHealthBarTextLeft
         or _G.PlayerFrameHealthBarText
         or (_G.PlayerFrameHealthBar and _G.PlayerFrameHealthBar.TextString)
@@ -131,6 +124,49 @@ end
 local healthLeft, healthRight, healthCenter
 local manaLeft, manaRight, manaCenter
 
+-- Mouseover state (for Status Text = None)
+local hoverHealth, hoverMana = false, false
+
+local function HideAll(a,b,c)
+    if a then a:Hide() end
+    if b then b:Hide() end
+    if c then c:Hide() end
+end
+
+-- Throttled update
+local pending = false
+local function QueueUpdate()
+    if pending then return end
+    pending = true
+    C_Timer.After(0, function()
+        pending = false
+        pcall(function() -- pcall wrapper keeps errors from breaking event handler
+            if UpdateTargetText then UpdateTargetText() end
+        end)
+    end)
+end
+
+local function HookBarMouseHandlers(bar, which)
+    if not bar or bar.__THP_Hooked then return end
+    bar.__THP_Hooked = true
+
+    bar:HookScript("OnEnter", function()
+        HideDefaultTextStrings(bar)
+        if which == "health" then hoverHealth = true else hoverMana = true end
+        if GetDisplayMode() == STATUS_TEXT_DISPLAY_MODE.NONE then
+            QueueUpdate()
+        end
+    end)
+
+    bar:HookScript("OnLeave", function()
+        HideDefaultTextStrings(bar)
+        if which == "health" then hoverHealth = false else hoverMana = false end
+        if GetDisplayMode() == STATUS_TEXT_DISPLAY_MODE.NONE then
+            QueueUpdate()
+        end
+    end)
+end
+
 local function CreateTargetText()
     local hb = _G.TargetFrameHealthBar or (_G.TargetFrame and _G.TargetFrame.healthbar)
     local mb = _G.TargetFrameManaBar   or (_G.TargetFrame and _G.TargetFrame.manabar)
@@ -138,8 +174,8 @@ local function CreateTargetText()
 
     EnsureOverlayFrame()
 
-    HookBarMouseHandlers(hb)
-    if mb then HookBarMouseHandlers(mb) end
+    HookBarMouseHandlers(hb, "health")
+    if mb then HookBarMouseHandlers(mb, "mana") end
 
     HideDefaultTextStrings(hb)
     if mb then HideDefaultTextStrings(mb) end
@@ -163,13 +199,7 @@ end
 -- ----------------------------------------------------------
 -- Rendering
 -- ----------------------------------------------------------
-local function HideAll(a,b,c)
-    if a then a:Hide() end
-    if b then b:Hide() end
-    if c then c:Hide() end
-end
-
-local function ApplyMode(leftFS, rightFS, centerFS, value, maxValue)
+local function ApplyMode(leftFS, rightFS, centerFS, value, maxValue, hoverShow)
     local mode = GetDisplayMode()
 
     if not value or not maxValue or maxValue <= 0 then
@@ -194,12 +224,22 @@ local function ApplyMode(leftFS, rightFS, centerFS, value, maxValue)
         if leftFS then leftFS:Hide() end
         if rightFS then rightFS:Hide() end
 
+    elseif mode == STATUS_TEXT_DISPLAY_MODE.NONE then
+        -- None: show values only when hovering the bar (player-frame behavior)
+        if hoverShow and centerFS then
+            centerFS:SetText(Abbrev(value) .. " / " .. Abbrev(maxValue))
+            centerFS:Show()
+        else
+            HideAll(leftFS, rightFS, centerFS)
+        end
+
     else
         HideAll(leftFS, rightFS, centerFS)
     end
 end
 
-local function UpdateTargetText()
+-- forward-declared for QueueUpdate closure
+function UpdateTargetText()
     local hb = _G.TargetFrameHealthBar or (_G.TargetFrame and _G.TargetFrame.healthbar)
     local mb = _G.TargetFrameManaBar   or (_G.TargetFrame and _G.TargetFrame.manabar)
     if not hb then return end
@@ -213,7 +253,7 @@ local function UpdateTargetText()
         if mb then HideDefaultTextStrings(mb) end
     end
 
-    -- Keep our font synced (cheap: just copies tuple once per update)
+    -- Keep our font synced
     ApplyFont(healthLeft); ApplyFont(healthRight); ApplyFont(healthCenter)
     ApplyFont(manaLeft);   ApplyFont(manaRight);   ApplyFont(manaCenter)
 
@@ -229,26 +269,15 @@ local function UpdateTargetText()
         return
     end
 
-    ApplyMode(healthLeft, healthRight, healthCenter, UnitHealth("target"), UnitHealthMax("target"))
+    ApplyMode(healthLeft, healthRight, healthCenter,
+        UnitHealth("target"), UnitHealthMax("target"), hoverHealth)
 
     if mb and manaLeft and manaRight and manaCenter then
-        ApplyMode(manaLeft, manaRight, manaCenter, UnitPower("target"), UnitPowerMax("target"))
+        ApplyMode(manaLeft, manaRight, manaCenter,
+            UnitPower("target"), UnitPowerMax("target"), hoverMana)
     else
         HideAll(manaLeft, manaRight, manaCenter)
     end
-end
-
--- ----------------------------------------------------------
--- Throttled update
--- ----------------------------------------------------------
-local pending = false
-local function QueueUpdate()
-    if pending then return end
-    pending = true
-    C_Timer.After(0, function()
-        pending = false
-        pcall(UpdateTargetText)
-    end)
 end
 
 -- ----------------------------------------------------------
