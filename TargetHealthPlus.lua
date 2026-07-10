@@ -8,7 +8,7 @@
 --  - Does NOT hard-code a font: copies the font currently used by the player frame text.
 --  - When Status Text = None, values will show on mouseover (like the player frame)
 
-STATUS_TEXT_DISPLAY_MODE = STATUS_TEXT_DISPLAY_MODE or {
+local DISPLAY_MODE = {
     NUMERIC = "NUMERIC",
     PERCENT = "PERCENT",
     BOTH    = "BOTH",
@@ -37,9 +37,9 @@ local function GetDisplayMode()
     if mode and mode ~= "" then return mode end
 
     local statusText = GetCVar and GetCVar("statusText")
-    if statusText == "1" then return STATUS_TEXT_DISPLAY_MODE.BOTH end
+    if statusText == "1" then return DISPLAY_MODE.BOTH end
 
-    return STATUS_TEXT_DISPLAY_MODE.BOTH
+    return DISPLAY_MODE.BOTH
 end
 
 local function HideDefaultTextStrings(bar)
@@ -133,6 +133,10 @@ local function HideAll(a,b,c)
     if c then c:Hide() end
 end
 
+-- Keep addon state private so Blizzard frames and globals are not tainted.
+local hookedBars = setmetatable({}, { __mode = "k" })
+local UpdateTargetText
+
 -- Throttled update
 local pending = false
 local function QueueUpdate()
@@ -147,13 +151,13 @@ local function QueueUpdate()
 end
 
 local function HookBarMouseHandlers(bar, which)
-    if not bar or bar.__THP_Hooked then return end
-    bar.__THP_Hooked = true
+    if not bar or hookedBars[bar] then return end
+    hookedBars[bar] = true
 
     bar:HookScript("OnEnter", function()
         HideDefaultTextStrings(bar)
         if which == "health" then hoverHealth = true else hoverMana = true end
-        if GetDisplayMode() == STATUS_TEXT_DISPLAY_MODE.NONE then
+        if GetDisplayMode() == DISPLAY_MODE.NONE then
             QueueUpdate()
         end
     end)
@@ -161,7 +165,7 @@ local function HookBarMouseHandlers(bar, which)
     bar:HookScript("OnLeave", function()
         HideDefaultTextStrings(bar)
         if which == "health" then hoverHealth = false else hoverMana = false end
-        if GetDisplayMode() == STATUS_TEXT_DISPLAY_MODE.NONE then
+        if GetDisplayMode() == DISPLAY_MODE.NONE then
             QueueUpdate()
         end
     end)
@@ -209,22 +213,22 @@ local function ApplyMode(leftFS, rightFS, centerFS, value, maxValue, hoverShow)
 
     local pct = math.floor((value / maxValue) * 100 + 0.5)
 
-    if mode == STATUS_TEXT_DISPLAY_MODE.BOTH then
+    if mode == DISPLAY_MODE.BOTH then
         if leftFS  then leftFS:SetText(pct .. "%"); leftFS:Show() end
         if rightFS then rightFS:SetText(Abbrev(value)); rightFS:Show() end
         if centerFS then centerFS:Hide() end
 
-    elseif mode == STATUS_TEXT_DISPLAY_MODE.PERCENT then
+    elseif mode == DISPLAY_MODE.PERCENT then
         if centerFS then centerFS:SetText(pct .. "%"); centerFS:Show() end
         if leftFS then leftFS:Hide() end
         if rightFS then rightFS:Hide() end
 
-    elseif mode == STATUS_TEXT_DISPLAY_MODE.NUMERIC then
+    elseif mode == DISPLAY_MODE.NUMERIC then
         if centerFS then centerFS:SetText(Abbrev(value) .. " / " .. Abbrev(maxValue)); centerFS:Show() end
         if leftFS then leftFS:Hide() end
         if rightFS then rightFS:Hide() end
 
-    elseif mode == STATUS_TEXT_DISPLAY_MODE.NONE then
+    elseif mode == DISPLAY_MODE.NONE then
         -- None: show values only when hovering the bar (player-frame behavior)
         if hoverShow and centerFS then
             centerFS:SetText(Abbrev(value) .. " / " .. Abbrev(maxValue))
@@ -238,8 +242,7 @@ local function ApplyMode(leftFS, rightFS, centerFS, value, maxValue, hoverShow)
     end
 end
 
--- forward-declared for QueueUpdate closure
-function UpdateTargetText()
+UpdateTargetText = function()
     local hb = _G.TargetFrameHealthBar or (_G.TargetFrame and _G.TargetFrame.healthbar)
     local mb = _G.TargetFrameManaBar   or (_G.TargetFrame and _G.TargetFrame.manabar)
     if not hb then return end
